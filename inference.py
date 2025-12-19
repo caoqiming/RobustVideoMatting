@@ -1,15 +1,15 @@
 """
 python inference.py \
     --variant mobilenetv3 \
-    --checkpoint "CHECKPOINT" \
-    --device cuda \
-    --input-source "input.mp4" \
+    --checkpoint "./model_data/rvm_mobilenetv3.pth" \
+    --device mps \
+    --input-source "/Volumes/Drive/photos/2025-09-28 howth/DJI_20000208181018_0001_D.MP4" \
     --output-type video \
-    --output-composition "composition.mp4" \
-    --output-alpha "alpha.mp4" \
-    --output-foreground "foreground.mp4" \
+    --output-composition "output/composition0_5.mp4" \
+    --output-alpha "output/alpha0_5.mp4" \
+    --output-foreground "output/foreground0_5.mp4" \
     --output-video-mbps 4 \
-    --seq-chunk 1
+    --seq-chunk 50
 """
 
 import torch
@@ -20,6 +20,7 @@ from typing import Optional, Tuple
 from tqdm.auto import tqdm
 
 from inference_utils import VideoReader, VideoWriter, ImageSequenceReader, ImageSequenceWriter
+
 
 def convert_video(model,
                   input_source: str,
@@ -35,7 +36,6 @@ def convert_video(model,
                   progress: bool = True,
                   device: Optional[str] = None,
                   dtype: Optional[torch.dtype] = None):
-    
     """
     Args:
         input_source:A video file, or an image sequence directory. Images must be sorted in accending order, support png and jpg.
@@ -54,13 +54,16 @@ def convert_video(model,
         device: Only need to manually provide if model is a TorchScript freezed model.
         dtype: Only need to manually provide if model is a TorchScript freezed model.
     """
-    
-    assert downsample_ratio is None or (downsample_ratio > 0 and downsample_ratio <= 1), 'Downsample ratio must be between 0 (exclusive) and 1 (inclusive).'
-    assert any([output_composition, output_alpha, output_foreground]), 'Must provide at least one output.'
-    assert output_type in ['video', 'png_sequence'], 'Only support "video" and "png_sequence" output modes.'
+
+    assert downsample_ratio is None or (downsample_ratio > 0 and downsample_ratio <=
+                                        1), 'Downsample ratio must be between 0 (exclusive) and 1 (inclusive).'
+    assert any([output_composition, output_alpha, output_foreground]
+               ), 'Must provide at least one output.'
+    assert output_type in [
+        'video', 'png_sequence'], 'Only support "video" and "png_sequence" output modes.'
     assert seq_chunk >= 1, 'Sequence chunk must be >= 1'
     assert num_workers >= 0, 'Number of workers must be >= 0'
-    
+
     # Initialize transform
     if input_resize is not None:
         transform = transforms.Compose([
@@ -75,11 +78,13 @@ def convert_video(model,
         source = VideoReader(input_source, transform)
     else:
         source = ImageSequenceReader(input_source, transform)
-    reader = DataLoader(source, batch_size=seq_chunk, pin_memory=True, num_workers=num_workers)
-    
+    reader = DataLoader(source, batch_size=seq_chunk,
+                        pin_memory=True, num_workers=num_workers)
+
     # Initialize writers
     if output_type == 'video':
-        frame_rate = source.frame_rate if isinstance(source, VideoReader) else 30
+        frame_rate = source.frame_rate if isinstance(
+            source, VideoReader) else 30
         output_video_mbps = 1 if output_video_mbps is None else output_video_mbps
         if output_composition is not None:
             writer_com = VideoWriter(
@@ -110,20 +115,23 @@ def convert_video(model,
         param = next(model.parameters())
         dtype = param.dtype
         device = param.device
-    
+
     if (output_composition is not None) and (output_type == 'video'):
-        bgr = torch.tensor([120, 255, 155], device=device, dtype=dtype).div(255).view(1, 1, 3, 1, 1)
-    
+        bgr = torch.tensor([120, 255, 155], device=device,
+                           dtype=dtype).div(255).view(1, 1, 3, 1, 1)
+
     try:
         with torch.no_grad():
-            bar = tqdm(total=len(source), disable=not progress, dynamic_ncols=True)
+            bar = tqdm(total=len(source), disable=not progress,
+                       dynamic_ncols=True)
             rec = [None] * 4
             for src in reader:
 
                 if downsample_ratio is None:
                     downsample_ratio = auto_downsample_ratio(*src.shape[2:])
 
-                src = src.to(device, dtype, non_blocking=True).unsqueeze(0) # [B, T, C, H, W]
+                src = src.to(device, dtype, non_blocking=True).unsqueeze(
+                    0)  # [B, T, C, H, W]
                 fgr, pha, *rec = model(src, *rec, downsample_ratio)
 
                 if output_foreground is not None:
@@ -137,7 +145,7 @@ def convert_video(model,
                         fgr = fgr * pha.gt(0)
                         com = torch.cat([fgr, pha], dim=-3)
                     writer_com.write(com[0])
-                
+
                 bar.update(src.size(1))
 
     finally:
@@ -164,16 +172,19 @@ class Converter:
         self.model = torch.jit.script(self.model)
         self.model = torch.jit.freeze(self.model)
         self.device = device
-    
+
     def convert(self, *args, **kwargs):
-        convert_video(self.model, device=self.device, dtype=torch.float32, *args, **kwargs)
-    
+        convert_video(self.model, device=self.device,
+                      dtype=torch.float32, *args, **kwargs)
+
+
 if __name__ == '__main__':
     import argparse
     from model import MattingNetwork
-    
+
     parser = argparse.ArgumentParser()
-    parser.add_argument('--variant', type=str, required=True, choices=['mobilenetv3', 'resnet50'])
+    parser.add_argument('--variant', type=str, required=True,
+                        choices=['mobilenetv3', 'resnet50'])
     parser.add_argument('--checkpoint', type=str, required=True)
     parser.add_argument('--device', type=str, required=True)
     parser.add_argument('--input-source', type=str, required=True)
@@ -182,13 +193,14 @@ if __name__ == '__main__':
     parser.add_argument('--output-composition', type=str)
     parser.add_argument('--output-alpha', type=str)
     parser.add_argument('--output-foreground', type=str)
-    parser.add_argument('--output-type', type=str, required=True, choices=['video', 'png_sequence'])
+    parser.add_argument('--output-type', type=str,
+                        required=True, choices=['video', 'png_sequence'])
     parser.add_argument('--output-video-mbps', type=int, default=1)
     parser.add_argument('--seq-chunk', type=int, default=1)
     parser.add_argument('--num-workers', type=int, default=0)
     parser.add_argument('--disable-progress', action='store_true')
     args = parser.parse_args()
-    
+
     converter = Converter(args.variant, args.checkpoint, args.device)
     converter.convert(
         input_source=args.input_source,
@@ -203,5 +215,3 @@ if __name__ == '__main__':
         num_workers=args.num_workers,
         progress=not args.disable_progress
     )
-    
-    
