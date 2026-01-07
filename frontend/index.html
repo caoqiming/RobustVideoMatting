@@ -32,6 +32,7 @@
             border: 2px solid #333;
             border-radius: 8px;
             overflow: hidden;
+            min-height: 200px;
         }
         
         .camera-section:last-child {
@@ -71,6 +72,17 @@
             font-size: 16px;
             color: #aaa;
         }
+        
+        .composite-image {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: none;
+        }
+        
+        .composite-image.active {
+            display: block;
+        }
     </style>
 </head>
 <body>
@@ -86,6 +98,12 @@
             <div class="loading">加载中...</div>
             <video id="rearVideo" autoplay playsinline></video>
         </div>
+        
+        <div class="camera-section" id="compositeSection">
+            <div class="label">合成图像</div>
+            <div class="loading">等待合成...</div>
+            <img id="compositeImage" class="composite-image" alt="合成图像">
+        </div>
     </div>
 
     <script>
@@ -93,6 +111,8 @@
         const rearVideo = document.getElementById('rearVideo');
         const frontSection = document.getElementById('frontSection');
         const rearSection = document.getElementById('rearSection');
+        const compositeImage = document.getElementById('compositeImage');
+        const compositeSection = document.getElementById('compositeSection');
         let ws;
 
         async function startCamera(videoElement, facingMode, section) {
@@ -162,6 +182,19 @@
             ws.onopen = () => {
                 startFrameLoop(frontVideo, 'front');
                 startFrameLoop(rearVideo, 'rear');
+            };
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'composite' && data.data) {
+                        compositeImage.src = data.data;
+                        compositeImage.classList.add('active');
+                        const loading = compositeSection.querySelector('.loading');
+                        if (loading) loading.remove();
+                    }
+                } catch (error) {
+                    console.error('处理消息失败:', error);
+                }
             };
             ws.onclose = () => console.warn('WebSocket 连接已关闭');
             ws.onerror = (e) => console.error('WebSocket 错误', e);

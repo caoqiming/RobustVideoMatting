@@ -198,6 +198,7 @@ class App:
         self.device = device
         self.foreground_source: VideoSource = None
         self.background_source: VideoSource = None
+        self.composite_callback = None  # 添加回调函数
 
     def set_foreground_source(self, source: VideoSource):
         if source is not None and not isinstance(source, VideoSource):
@@ -208,6 +209,10 @@ class App:
         if source is not None and not isinstance(source, VideoSource):
             raise TypeError("background_source must be a VideoSource")
         self.background_source = source
+
+    def set_composite_callback(self, callback):
+        """设置合成图像的回调函数"""
+        self.composite_callback = callback
 
     def start(self):
         infer = RealtimeInference(
@@ -244,6 +249,11 @@ class App:
             com = fgr * pha + bgr * (1 - pha)
             com_display = (com[0].permute(
                 1, 2, 0).cpu().numpy() * 255).astype('uint8')
+
+            # 调用回调函数发送合成图像
+            if self.composite_callback:
+                self.composite_callback(com_display)
+
             cv2.imshow('Composite', cv2.cvtColor(
                 com_display, cv2.COLOR_RGB2BGR))
             if cv2.waitKey(1) & 0xFF == ord('q'):

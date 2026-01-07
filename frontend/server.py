@@ -16,6 +16,8 @@ HTTP_PORT = 80  # HTTP 重定向端口
 WS_PORT = 8765
 DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 frame_data = {}  # 储存最近的一帧图片
+ws_clients = set()  # 存储所有连接的 WebSocket 客户端
+ws_loop = None  # 存储 WebSocket 事件循环的引用
 
 
 class MyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
@@ -108,6 +110,7 @@ def generate_self_signed_cert():
 
 async def handle_ws(websocket):
     print("✓ WebSocket 客户端已连接")
+    ws_clients.add(websocket)
     try:
         async for message in websocket:
             try:
@@ -157,10 +160,13 @@ async def handle_ws(websocket):
     except websockets.exceptions.ConnectionClosed:
         print("WebSocket 连接已关闭")
     finally:
+        ws_clients.discard(websocket)
         print("WebSocket 处理器退出")
 
 
 async def run_ws_server(cert_file, key_file):
+    global ws_loop
+    ws_loop = asyncio.get_event_loop()
     ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ssl_ctx.load_cert_chain(cert_file, key_file)
     print(f"✓ WebSocket 服务器运行在 wss://localhost:{WS_PORT}")
@@ -220,6 +226,36 @@ class StreamFromWebsocket(VideoSource):
         return torch.from_numpy(frame).permute(2, 0, 1).unsqueeze(0).float().div(255.0)
 
 
+def send_composite_to_clients(com_display):
+    """将合成图像发送给所有连接的客户端"""
+    if not ws_clients or ws_loop is None:
+        return
+
+    # 将图像编码为 JPEG
+    _, buffer = cv2.imencode('.jpg', cv2.cvtColor(
+        com_display, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 80])
+    img_base64 = base64.b64encode(buffer).decode('utf-8')
+    img_data_url = f"data:image/jpeg;base64,{img_base64}"
+
+    # 异步发送给所有客户端
+    message = json.dumps({"type": "composite", "data": img_data_url})
+
+    # 在 WebSocket 事件循环中执行广播
+    async def broadcast():
+        disconnected = set()
+        for client in ws_clients.copy():
+            try:
+                await client.send(message)
+            except Exception as e:
+                print(f"发送失败: {e}")
+                disconnected.add(client)
+        for client in disconnected:
+            ws_clients.discard(client)
+
+    # 将协程提交到 WebSocket 线程的事件循环
+    asyncio.run_coroutine_threadsafe(broadcast(), ws_loop)
+
+
 if __name__ == "__main__":
     # 注意：在Unix/Linux/Mac上，使用443端口需要root权限
     # 可以使用 sudo python server.py 运行
@@ -230,4 +266,5 @@ if __name__ == "__main__":
     app.set_foreground_source(StreamFromWebsocket('front'))
     # app.set_background_source(VideoFile('./video_data/galway.MP4'))
     app.set_background_source(StreamFromWebsocket('rear'))
+    app.set_composite_callback(send_composite_to_clients)  # 设置回调
     app.start()
