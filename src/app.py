@@ -221,6 +221,9 @@ class App:
             loop_start = now
             frame_tensor = self.foreground_source.read_next_frame(
                 interval if interval > 0 else None)
+            if frame_tensor is None:
+                continue
+
             fgr, pha = infer.infere(frame_tensor)
             # Ensure outputs are NCHW (drop temporal dim if present)
             if fgr.dim() == 5:
@@ -230,6 +233,9 @@ class App:
 
             background_tensor = self.background_source.read_next_frame(
                 interval if interval > 0 else None)
+            if background_tensor is None:
+                continue
+
             bgr = background_tensor.to(self.device)
             if bgr.shape[2:] != fgr.shape[2:]:
                 bgr = F.interpolate(

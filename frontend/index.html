@@ -93,6 +93,7 @@
         const rearVideo = document.getElementById('rearVideo');
         const frontSection = document.getElementById('frontSection');
         const rearSection = document.getElementById('rearSection');
+        let ws;
 
         async function startCamera(videoElement, facingMode, section) {
             try {
@@ -127,6 +128,45 @@
             }
         }
 
+        function startFrameLoop(videoElement, cameraName) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const sendFrame = () => {
+                if (!ws || ws.readyState !== WebSocket.OPEN) return;
+                if (videoElement.readyState < 2) {
+                    requestAnimationFrame(sendFrame);
+                    return;
+                }
+                canvas.width = videoElement.videoWidth || 640;
+                canvas.height = videoElement.videoHeight || 480;
+                ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+                canvas.toBlob(blob => {
+                    if (!blob || ws.readyState !== WebSocket.OPEN) {
+                        requestAnimationFrame(sendFrame);
+                        return;
+                    }
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        ws.send(JSON.stringify({ camera: cameraName, data: reader.result }));
+                        requestAnimationFrame(sendFrame);
+                    };
+                    reader.readAsDataURL(blob);
+                }, 'image/jpeg', 0.7);
+            };
+            requestAnimationFrame(sendFrame);
+        }
+
+        function connectWebSocket() {
+            const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+            ws = new WebSocket(`${protocol}://${location.hostname}:8765`);
+            ws.onopen = () => {
+                startFrameLoop(frontVideo, 'front');
+                startFrameLoop(rearVideo, 'rear');
+            };
+            ws.onclose = () => console.warn('WebSocket 连接已关闭');
+            ws.onerror = (e) => console.error('WebSocket 错误', e);
+        }
+
         async function initCameras() {
             // 检查浏览器支持
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -138,6 +178,7 @@
             try {
                 await startCamera(frontVideo, 'user', frontSection);
                 await startCamera(rearVideo, 'environment', rearSection);
+                connectWebSocket();
             } catch (error) {
                 console.error('初始化摄像头失败:', error);
             }
@@ -153,6 +194,9 @@
                     video.srcObject.getTracks().forEach(track => track.stop());
                 }
             });
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.close();
+            }
         });
     </script>
 </body>
