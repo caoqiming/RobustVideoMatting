@@ -264,6 +264,7 @@ class App:
 if __name__ == "__main__":
     app = App()
     app.set_foreground_source(LocalCamera())
-    # app.set_background_source(VideoFile('./video_data/galway.MP4'))
-    app.set_background_source(IPCamera('http://192.168.0.32:8080'))
+    app.set_background_source(
+        VideoFile('/Volumes/Drive/视频素材/cv演示/paris_part.mp4'))
+    # app.set_background_source(IPCamera('http://192.168.0.32:8080'))
     app.start()
